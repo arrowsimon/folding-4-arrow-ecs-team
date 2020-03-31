@@ -1,11 +1,18 @@
-# apiVersion: scheduling.k8s.io/v1
-# kind: PriorityClass
-# metadata:
-#   name: low-priority-class
-# value: 10
-# globalDefault: false
-# description: "This priority class should be used for low priority fah-cpu pods only."
-
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: foldingathome-config
+data:
+  config.xml: |
+    <config>
+      <user value="arrowsimon"/> <!-- Enter your user name here -->
+      <team value="246538"/>         <!-- Your team number -->
+      <passkey value=""/>       <!-- 32 hexadecimal characters if provided -->
+      <power value="full"/>     <!-- Throttling this at K8s level -->
+      <gpu value="false"/>      <!-- If true, attempt to autoconfigure GPUs -->
+      <fold-anon value="false"/>
+    </config>
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -17,7 +24,7 @@ spec:
   selector:
     matchLabels:
       app: fah-cpu
-  replicas: 3 # Set number of replicas to run - one replica per node
+  replicas: 1 # Set number of replicas to run - one replica per node
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -28,20 +35,9 @@ spec:
       labels:
         app: fah-cpu
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchExpressions:
-                  - key: app
-                    operator: In
-                    values:
-                      - fah-cpu
-              topologyKey: "kubernetes.io/hostname"
       containers:
         - name: fah-cpu
           image: "richstokes20/fah-covid:latest"
-          # --run-as UID should match runAsUser value in containers securityContext
           command:
             - "/usr/bin/FAHClient"
             - "--config"
@@ -52,12 +48,11 @@ spec:
             - "--pid-file=/var/lib/fahclient/fahclient.pid"
           resources:
             limits:
-              cpu: 6000m # How much CPU you wish to donate per node
-              memory: 4096Mi
+              cpu: 1000m # How much CPU you wish to donate per node
+              memory: 256Mi
             requests:
-              cpu: 6000m
-              memory: 4096Mi
-          # Make the container harder to break out of or exploit
+              cpu: 1000m
+              memory: 256Mi
           securityContext:
             runAsNonRoot: true
             runAsUser: 1234
@@ -66,15 +61,12 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/fahclient
               name: fahclient
-      # We make an emptyDir to mount on the work directory /var/lib/fahclient
-      # so we can make the rest of the container's root filesystem read-only
       volumes:
         - name: fahclient
           emptyDir: {}
-        # Uncomment if using ConfigMap config.xml
-        # - name: fah-cpu-config
-        #   configMap:
-        #     name: foldingathome-config
+        - name: fah-cpu-config
+          configMap:
+            name: foldingathome-config
       initContainers:
         - name: copy-config
           imagePullPolicy: Always
@@ -83,8 +75,6 @@ spec:
             - "sh"
             - "-c"
             - "cp /etc/fahclient/config.xml /var/lib/fahclient/config.xml"
-            # Use this cp command instead if using ConfigMap config.xml
-            # - "cp /etc/fahclient-config/config.xml /var/lib/fahclient/config.xml"
           securityContext:
             runAsNonRoot: true
             runAsUser: 1234
@@ -93,30 +83,6 @@ spec:
           volumeMounts:
             - mountPath: /var/lib/fahclient
               name: fahclient
-            # Uncomment if using ConfigMap config.xml
-            # - name: fah-cpu-config
-            #   mountPath: /etc/fahclient-config
-      # priorityClassName: low-priority-class
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: foldingathome-config
-data:
-  config.xml: |
-    <config>
-      <!--
-        To set your user name, team and passkey just edit the text
-        in quotes below.
-      -->
-
-      <!-- User Information -->
-      <user value="ARWDEMO-k8s-cluster"/> <!-- Enter your user name here -->
-      <team value="246538"/>         <!-- Your team number -->
-      <passkey value=""/>       <!-- 32 hexadecimal characters if provided -->
-
-      <power value="full"/>     <!-- Throttling this at K8s level -->
-      <gpu value="false"/>      <!-- If true, attempt to autoconfigure GPUs -->
-      <fold-anon value="false"/>
-    </config>
----
+            - name: fah-cpu-config
+              mountPath: /etc/fahclient/config.xml
+              subPath: config.xml
